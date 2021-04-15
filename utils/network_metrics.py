@@ -5,16 +5,17 @@ from networkx.algorithms import approximation, mis
 import matplotlib.pyplot as plt
 import re
 
-from max_set import get_max_degree_concurrency
+from .max_set import get_max_degree_concurrency
 
 INFERENCE_SIZE = (224, 224)
+DEBUG = 0
 
 def remove_accumulate_nodes(graph):
     new_graph = graph.copy()
 
     for node in graph.nodes():
         nodename = re.sub(r'[0-9]+', '', str(node))
-        print(nodename)
+#         print(nodename)
         if nodename.endswith('AccumulateGrad'):
             if len(nx.algorithms.dag.ancestors(graph, node)) == 0 or \
                 len(nx.algorithms.dag.descendants(graph, node)) == 0:
@@ -87,9 +88,14 @@ def get_model_graph(model):
                         add_nodes(t, d+1)
 
     try:
-        add_nodes(dummy_output.grad_fn)
+        if len(dummy_output) == 2: # tuny net archs output tuple?
+          add_nodes(dummy_output[1].grad_fn)
+        else:
+          add_nodes(dummy_output.grad_fn)
     except BaseException:
-        print("Exception generated on graph")
+        if DEBUG:
+          print("Exception generated on graph")
+          print(f"{dummy_output} = dumb output", flush=True)
         # some models have a weird structure on the output
         add_nodes(dict(dummy_output)['out'].grad_fn)
 
@@ -144,14 +150,16 @@ def pytorch_to_nx(model):
     return G
 
 def maximal_set_on_path(model):
-  print("Getting max set on path")
+  if DEBUG:
+    print("Getting max set on path")
   graph = pytorch_to_nx(model)
   # first add root node if none exists
   graph_copy = graph.copy()
 
   topo_sort = nx.topological_sort(graph_copy)
 
-  print("Got topological sort", flush=True)
+  if DEBUG:
+    print("Got topological sort", flush=True)
 
   path_lengths = {} # node -> distance
   current_cdl = 0
@@ -167,7 +175,8 @@ def maximal_set_on_path(model):
       output_length = max(path_lengths[node], path_lengths[parent] + 1)
       path_lengths[node] = output_length
 
-  print("Parsed decendents and ancestors", flush=True)
+  if DEBUG:
+    print("Parsed decendents and ancestors", flush=True)
 
   # path_length -> node_set
   independent_sets = {}
@@ -176,8 +185,8 @@ def maximal_set_on_path(model):
       independent_sets[length] = set()
 
     independent_sets[length].add(node)
-
-  print("Got all independent sets at each CDL", flush=True)
+  if DEBUG:
+    print("Got all independent sets at each CDL", flush=True)
 
   # trivial to initialize tensors that are all at the zeroth position
   del independent_sets[0]
@@ -185,19 +194,22 @@ def maximal_set_on_path(model):
   return max([len(X) for X in independent_sets.values()])
 
 def longest_path(model):
-    print("Computing maximal antichain, may be slow")
     graph = pytorch_to_nx(model)
     return nx.algorithms.dag.dag_longest_path_length(graph)
 
 def maximal_antichain(model):
-    print("Computing maximal antichain, may be slow")
+    if DEBUG:
+      print("Computing maximal antichain, may be slow")
     graph = pytorch_to_nx(model)
-    print("Graph conversion complete", len(graph.nodes()), len(graph.edges()), flush=True)
+    if DEBUG:
+      print("Graph conversion complete", len(graph.nodes()), len(graph.edges()), flush=True)
     all_antichains = nx.antichains(graph)
-    print("got all antichains", flush=True)
+    if DEBUG:
+      print("got all antichains", flush=True)
     chain_lengths = map(lambda antichain: (len(antichain), antichain), all_antichains)
-    print("Computed chain lengths", flush=True)
-    # print(list(set(map(lambda item: item[0], chain_lengths))))
+    if DEBUG:
+      print("Computed chain lengths", flush=True)
+      # print(list(set(map(lambda item: item[0], chain_lengths))))
     max_len = 0
     idx = 0
     for length, _ in chain_lengths:
@@ -205,21 +217,24 @@ def maximal_antichain(model):
         max_len = max(length, max_len)
         print(f"{idx}", flush=True, end='\r')
     # max_len = max(map(lambda item: item[0], chain_lengths))
-    print("Got maximum length =", max_len, flush=True)
+    if DEBUG:
+      print("Got maximum length =", max_len, flush=True)
     longest_chains = map(lambda item: set(item[1]), list(filter(lambda item: item[0] == max_len, chain_lengths)))
 
     return max_len, list(longest_chains)
 
 def approx_max_ind_set(model):
-    print("Computing approximate independent set")
+    if DEBUG:
+      print("Computing approximate independent set")
     graph = pytorch_to_nx(model)
     # nx.draw_planar(graph, font_size=8, with_labels=True)
     # plt.show()
-    print("Graph conversion complete", len(graph.nodes()), len(graph.edges()), flush=True)
-    mdc, _ = get_max_degree_concurrency(graph)
-    print(mdc)
-    print('got max', mdc)
-    return mdc, []
+    if DEBUG:
+      print("Graph conversion complete", len(graph.nodes()), len(graph.edges()), flush=True)
+    mdc, _ = get_max_degree_concurrency(graph, False, True, False)
+#     print(mdc)
+#     print('got max', mdc)
+    return mdc
 
 def total_nodes(model):
   graph = pytorch_to_nx(model)
